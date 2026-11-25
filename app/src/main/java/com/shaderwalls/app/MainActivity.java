@@ -280,7 +280,7 @@ public class MainActivity extends Activity {
         return p;
     }
 
-    private View buildSkySection() {
+    private LinearLayout buildSkySection() {
         LinearLayout s = new LinearLayout(this);
         s.setOrientation(LinearLayout.VERTICAL);
 
