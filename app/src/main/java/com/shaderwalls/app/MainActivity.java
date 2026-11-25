@@ -4,7 +4,16 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.WallpaperManager;
 import android.content.ComponentName;
+import android.Manifest;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.os.Looper;
+import android.widget.EditText;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -27,7 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends Activity {
-    private static final int REQ_IMAGE = 41;
+    private static final int REQ_IMAGE = 41, REQ_LOC = 42;
     private static final int BG = 0xFF0E0E12, PANEL = 0xFF1A1A22, ACCENT = 0xFF8C7CFF;
 
     private GLSurfaceView preview;
@@ -45,6 +54,14 @@ public class MainActivity extends Activity {
     private final View[] swatches = new View[5];
     private TextView modeOriginal, modeCustom;
     private boolean updatingUi;
+    private TextView pauseChip, weatherInfo;
+    private LinearLayout skySection;
+    private final List<TextView> weatherChips = new ArrayList<>(), timeChips = new ArrayList<>();
+    private final SharedPreferences.OnSharedPreferenceChangeListener prefListener = (sp, key) -> {
+        if (key != null && (key.startsWith("w_") || key.startsWith("loc_")) && weatherInfo != null) {
+            weatherInfo.setText(Weather.summary(this));
+        }
+    };
 
     private interface FloatSetter { void set(float v); }
 
@@ -167,6 +184,16 @@ public class MainActivity extends Activity {
         p.setPadding(dp(12), dp(8), dp(12), dp(12));
         p.setBackground(round(PANEL, 16));
 
+        skySection = buildSkySection();
+        p.addView(skySection);
+
+        pauseChip = chip("");
+        pauseChip.setOnClickListener(v -> { cur.paused = !cur.paused; changed(); });
+        LinearLayout.LayoutParams pl = new LinearLayout.LayoutParams(-1, dp(42));
+        pl.topMargin = dp(6);
+        pl.bottomMargin = dp(4);
+        p.addView(pauseChip, pl);
+
         speedVal = new TextView(this);
         speedBar = slider(p, "السرعة", speedVal, 0, 300, v -> cur.speed = v);
         scaleVal = new TextView(this);
@@ -253,6 +280,158 @@ public class MainActivity extends Activity {
         return p;
     }
 
+    private View buildSkySection() {
+        LinearLayout s = new LinearLayout(this);
+        s.setOrientation(LinearLayout.VERTICAL);
+
+        weatherInfo = new TextView(this);
+        weatherInfo.setTextColor(Color.WHITE);
+        weatherInfo.setTextSize(15);
+        weatherInfo.setGravity(Gravity.CENTER);
+        weatherInfo.setPadding(dp(8), dp(10), dp(8), dp(10));
+        weatherInfo.setBackground(round(0xFF2A2A35, 12));
+        weatherInfo.setText(Weather.summary(this));
+        s.addView(weatherInfo, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout locRow = new LinearLayout(this);
+        locRow.setOrientation(LinearLayout.HORIZONTAL);
+        TextView myLoc = chip("📍 موقعي");
+        myLoc.setBackground(round(ACCENT, 10));
+        myLoc.setOnClickListener(v -> useMyLocation());
+        TextView city = chip("🔎 مدينة");
+        city.setBackground(round(0xFF2A2A35, 10));
+        city.setOnClickListener(v -> askCity());
+        TextView refresh = chip("↻ تحديث");
+        refresh.setBackground(round(0xFF2A2A35, 10));
+        refresh.setOnClickListener(v -> {
+            Weather.refreshAsync(this);
+            Toast.makeText(this, "جارٍ تحديث الطقس…", Toast.LENGTH_SHORT).show();
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(40), 1f);
+        lp.setMargins(dp(3), dp(8), dp(3), 0);
+        locRow.addView(myLoc, lp);
+        locRow.addView(city, new LinearLayout.LayoutParams(lp));
+        locRow.addView(refresh, new LinearLayout.LayoutParams(lp));
+        s.addView(locRow);
+
+        s.addView(label("الطقس"));
+        s.addView(chipRow(SkyModel.WEATHER_NAMES, weatherChips, "sky_weather"));
+        s.addView(label("الوقت"));
+        s.addView(chipRow(SkyModel.TIME_NAMES, timeChips, "sky_time"));
+        return s;
+    }
+
+    private View chipRow(String[] names, List<TextView> into, String key) {
+        HorizontalScrollView hs = new HorizontalScrollView(this);
+        hs.setHorizontalScrollBarEnabled(false);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        for (int i = 0; i < names.length; i++) {
+            TextView t = chip(names[i]);
+            t.setPadding(dp(14), 0, dp(14), 0);
+            final int idx = i;
+            t.setOnClickListener(v -> {
+                Styles.prefs(this).edit().putInt(key, idx).apply();
+                refreshEditor();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, dp(38));
+            lp.setMargins(dp(3), 0, dp(3), 0);
+            row.addView(t, lp);
+            into.add(t);
+        }
+        hs.addView(row);
+        return hs;
+    }
+
+    private void useMyLocation() {
+        if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOC);
+            return;
+        }
+        Styles.prefs(this).edit().putBoolean("loc_city", false).apply();
+        weatherInfo.setText("جارٍ تحديد موقعك…");
+        try {
+            LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+            Location best = null;
+            for (String prov : lm.getProviders(true)) {
+                Location l = lm.getLastKnownLocation(prov);
+                if (l != null && (best == null || l.getTime() > best.getTime())) best = l;
+            }
+            if (best != null) {
+                gotLocation(best);
+                return;
+            }
+            String prov = lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+                    ? LocationManager.NETWORK_PROVIDER : LocationManager.GPS_PROVIDER;
+            if (!lm.isProviderEnabled(prov)) {
+                Toast.makeText(this, "فعّل الموقع في الهاتف، أو اختر مدينة", Toast.LENGTH_LONG).show();
+                weatherInfo.setText(Weather.summary(this));
+                return;
+            }
+            lm.requestSingleUpdate(prov, new LocationListener() {
+                @Override public void onLocationChanged(Location l) { gotLocation(l); }
+                @Override public void onStatusChanged(String p, int s, Bundle b) { }
+                @Override public void onProviderEnabled(String p) { }
+                @Override public void onProviderDisabled(String p) { }
+            }, Looper.getMainLooper());
+        } catch (SecurityException e) {
+            Toast.makeText(this, "لم يُسمح بالوصول للموقع", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void gotLocation(Location l) {
+        Weather.saveLocation(this, l.getLatitude(), l.getLongitude(), "موقعي");
+        Weather.refreshAsync(this);
+    }
+
+    private void askCity() {
+        final EditText in = new EditText(this);
+        in.setHint("مثال: بغداد");
+        in.setSingleLine(true);
+        LinearLayout box = new LinearLayout(this);
+        box.setPadding(dp(20), dp(8), dp(20), 0);
+        box.addView(in, new LinearLayout.LayoutParams(-1, -2));
+        new AlertDialog.Builder(this)
+                .setTitle("اكتب اسم المدينة")
+                .setView(box)
+                .setPositiveButton("بحث", (d, w) -> {
+                    final String q = in.getText().toString();
+                    if (q.trim().isEmpty()) return;
+                    weatherInfo.setText("جارٍ البحث…");
+                    new Thread(() -> {
+                        try {
+                            String[] r = Weather.geocode(q);
+                            if (r == null) {
+                                runOnUiThread(() -> {
+                                    Toast.makeText(this, "لم أجد هذه المدينة", Toast.LENGTH_SHORT).show();
+                                    weatherInfo.setText(Weather.summary(this));
+                                });
+                                return;
+                            }
+                            Weather.saveLocation(this, Double.parseDouble(r[1]), Double.parseDouble(r[2]), r[0]);
+                            Styles.prefs(this).edit().putBoolean("loc_city", true).apply();
+                            Weather.fetch(getApplicationContext());
+                        } catch (Exception e) {
+                            runOnUiThread(() -> {
+                                Toast.makeText(this, "تحقق من الاتصال بالإنترنت", Toast.LENGTH_SHORT).show();
+                                weatherInfo.setText(Weather.summary(this));
+                            });
+                        }
+                    }).start();
+                })
+                .setNegativeButton("إلغاء", null)
+                .show();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int req, String[] perms, int[] results) {
+        super.onRequestPermissionsResult(req, perms, results);
+        if (req == REQ_LOC) {
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) useMyLocation();
+            else Toast.makeText(this, "يمكنك اختيار مدينة بدلاً من الموقع", Toast.LENGTH_LONG).show();
+        }
+    }
+
     private SeekBar slider(LinearLayout parent, String name, TextView valView, int min, int max, FloatSetter setter) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -334,6 +513,12 @@ public class MainActivity extends Activity {
         setBar(scaleBar, cur.scale);
         setBar(brightBar, cur.bright);
         updatingUi = false;
+        pauseChip.setText(cur.paused ? "▶  تشغيل الحركة" : "⏸  إيقاف الحركة");
+        pauseChip.setBackground(round(cur.paused ? ACCENT : 0xFF2A2A35, 10));
+        skySection.setVisibility(selected == Styles.SKY ? View.VISIBLE : View.GONE);
+        int wSel = Styles.prefs(this).getInt("sky_weather", 0), tSel = Styles.prefs(this).getInt("sky_time", 0);
+        for (int k = 0; k < weatherChips.size(); k++) weatherChips.get(k).setBackground(round(k == wSel ? ACCENT : 0xFF2A2A35, 10));
+        for (int k = 0; k < timeChips.size(); k++) timeChips.get(k).setBackground(round(k == tSel ? ACCENT : 0xFF2A2A35, 10));
         boolean custom = cur.mode == Styles.MODE_CUSTOM;
         GradientDrawable on = round(ACCENT, 10), off = round(0xFF2A2A35, 10);
         modeOriginal.setBackground(custom ? off : on);
@@ -359,6 +544,7 @@ public class MainActivity extends Activity {
         c.scale = s.scale;
         c.bright = s.bright;
         c.mode = s.mode;
+        c.paused = s.paused;
         c.pal = s.pal.clone();
         return c;
     }
@@ -455,8 +641,14 @@ public class MainActivity extends Activity {
         renderer.setStyle(i);
         Styles.save(this, i); // live wallpaper (if active) follows instantly
         title.setText(Styles.NAMES[i]);
+        if (i == Styles.SKY) Weather.refreshIfStale(this);
         for (int k = 0; k < tiles.size(); k++) {
             GradientDrawable d = round(Styles.COLORS[k], 10);
+            if (k == Styles.SKY) {
+                d = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                        new int[]{0xFF92B4E8, 0xFFFDB66A, 0xFFFF6A4B});
+                d.setCornerRadius(dp(10));
+            }
             if (k == i) d.setStroke(dp(3), Color.WHITE);
             tiles.get(k).setBackground(d);
         }
@@ -484,10 +676,14 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         preview.onResume();
+        Styles.prefs(this).registerOnSharedPreferenceChangeListener(prefListener);
+        if (weatherInfo != null) weatherInfo.setText(Weather.summary(this));
+        if (selected == Styles.SKY) Weather.refreshIfStale(this);
     }
 
     @Override
     protected void onPause() {
+        Styles.prefs(this).unregisterOnSharedPreferenceChangeListener(prefListener);
         preview.onPause();
         super.onPause();
     }

@@ -27,6 +27,9 @@ public class ShaderRenderer implements GLSurfaceView.Renderer {
     private int loadedStyle = -1;
     private int program;
     private int aPos, uRes, uTime, uScale, uBright, uMix, uPal;
+    private int uSky, uCloud, uRain, uSnow, uFog, uStorm, uGlow;
+    private final SkyModel sky = new SkyModel();
+    private long lastSky;
     private volatile Styles.Settings settings = new Styles.Settings();
     private final float[] palBuf = new float[15];
     private float simTime;
@@ -69,7 +72,7 @@ public class ShaderRenderer implements GLSurfaceView.Renderer {
     @Override
     public void onDrawFrame(GL10 gl) {
         long now = SystemClock.elapsedRealtime();
-        long wait = FRAME_MS - (now - lastFrame);
+        long wait = (settings.paused ? 150 : FRAME_MS) - (now - lastFrame);
         if (wait > 0) {
             try { Thread.sleep(wait); } catch (InterruptedException ignored) { }
         }
@@ -88,6 +91,14 @@ public class ShaderRenderer implements GLSurfaceView.Renderer {
                 uBright = GLES20.glGetUniformLocation(program, "u_bright");
                 uMix = GLES20.glGetUniformLocation(program, "u_mix");
                 uPal = GLES20.glGetUniformLocation(program, "u_pal[0]");
+                uSky = GLES20.glGetUniformLocation(program, "u_sky[0]");
+                uCloud = GLES20.glGetUniformLocation(program, "u_cloud");
+                uRain = GLES20.glGetUniformLocation(program, "u_rain");
+                uSnow = GLES20.glGetUniformLocation(program, "u_snow");
+                uFog = GLES20.glGetUniformLocation(program, "u_fog");
+                uStorm = GLES20.glGetUniformLocation(program, "u_storm");
+                uGlow = GLES20.glGetUniformLocation(program, "u_glow");
+                lastSky = 0;
             }
         }
         if (program == 0) {
@@ -101,7 +112,7 @@ public class ShaderRenderer implements GLSurfaceView.Renderer {
         if (lastTick == 0) lastTick = now2;
         float dt = Math.min(0.1f, (now2 - lastTick) / 1000f);
         lastTick = now2;
-        simTime = (simTime + dt * st.speed) % 3600f;
+        simTime = (simTime + dt * (st.paused ? 0f : st.speed)) % 3600f;
         for (int i = 0; i < 5; i++) {
             int c = st.pal[i];
             palBuf[i * 3] = ((c >> 16) & 0xFF) / 255f;
@@ -115,6 +126,19 @@ public class ShaderRenderer implements GLSurfaceView.Renderer {
         GLES20.glUniform1f(uBright, st.bright);
         GLES20.glUniform1f(uMix, st.mode == Styles.MODE_CUSTOM ? 1f : 0f);
         GLES20.glUniform3fv(uPal, 5, palBuf, 0);
+        if (uSky >= 0) {
+            if (now2 - lastSky > 2000) {
+                SkyModel.compute(ctx, sky);
+                lastSky = now2;
+            }
+            GLES20.glUniform3fv(uSky, 3, sky.sky, 0);
+            GLES20.glUniform1f(uCloud, sky.cloud);
+            GLES20.glUniform1f(uRain, sky.rain);
+            GLES20.glUniform1f(uSnow, sky.snow);
+            GLES20.glUniform1f(uFog, sky.fog);
+            GLES20.glUniform1f(uStorm, sky.storm);
+            GLES20.glUniform1f(uGlow, sky.glow);
+        }
         GLES20.glEnableVertexAttribArray(aPos);
         GLES20.glVertexAttribPointer(aPos, 2, GLES20.GL_FLOAT, false, 0, quad);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);

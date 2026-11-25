@@ -7,27 +7,28 @@ public final class Styles {
     private Styles() {}
 
     public static final String[] FILES = {
-            "bricks", "ascii", "mosaic", "amethyst", "dotscreen", "glitch", "glasstiles", "liquid",
+            "sky", "bricks", "ascii", "mosaic", "amethyst", "dotscreen", "glitch", "glasstiles", "liquid",
             "lavender", "hexbeads", "led", "sunburst", "violet", "interference", "aura", "lightweb"
     };
     public static final String[] NAMES = {
-            "Bricks", "ASCII Terminal", "Mosaic", "Amethyst Tiles", "Dot Screen", "Glitch Blinds",
+            "Live Sky ☁", "Bricks", "ASCII Terminal", "Mosaic", "Amethyst Tiles", "Dot Screen", "Glitch Blinds",
             "Glass Tiles", "Liquid Light", "Lavender Weave", "Hex Beads", "LED Matrix", "Sunburst",
             "Violet Glass", "Interference", "Aura", "Light Web"
     };
     /** Representative colour of each style, used for the picker buttons. */
     public static final int[] COLORS = {
-            0xFFF2C98F, 0xFF0B1F10, 0xFF3A1528, 0xFF5B34A8, 0xFF1A3BD6, 0xFF4F8FCF,
+            0xFFFDB66A, 0xFFF2C98F, 0xFF0B1F10, 0xFF3A1528, 0xFF5B34A8, 0xFF1A3BD6, 0xFF4F8FCF,
             0xFF7A5BD9, 0xFF111216, 0xFF7E70A8, 0xFF1A2347, 0xFF1C1C1C, 0xFF6E9A62,
             0xFF5A3FD8, 0xFF5B7A99, 0xFFD8C8F0, 0xFFE0C49C
     };
     public static final boolean[] LIGHT = {
-            true, false, false, false, false, false, false, false,
+            false, true, false, false, false, false, false, false, false,
             false, false, false, false, false, false, true, true
     };
 
     static final String PREFS = "walls";
-    static final String KEY_STYLE = "style";
+    static final String KEY_STYLE = "style_v2";
+    public static final int SKY = 0;
 
     public static SharedPreferences prefs(Context c) {
         return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -61,17 +62,19 @@ public final class Styles {
     public static class Settings {
         public float speed = 1f, scale = 1f, bright = 1f;
         public int mode = MODE_ORIGINAL;
+        public boolean paused;
         public int[] pal = DEFAULT_PALETTE.clone();
     }
 
     public static Settings load(Context c, int s) {
         SharedPreferences p = prefs(c);
         Settings st = new Settings();
-        st.speed = p.getFloat("speed_" + s, 1f);
-        st.scale = p.getFloat("scale_" + s, 1f);
-        st.bright = p.getFloat("bright_" + s, 1f);
-        st.mode = p.getInt("mode_" + s, MODE_ORIGINAL);
-        String pal = p.getString("pal_" + s, null);
+        st.speed = p.getFloat("speed_" + FILES[s], 1f);
+        st.scale = p.getFloat("scale_" + FILES[s], 1f);
+        st.bright = p.getFloat("bright_" + FILES[s], 1f);
+        st.mode = p.getInt("mode_" + FILES[s], MODE_ORIGINAL);
+        st.paused = p.getBoolean("paused_" + FILES[s], false);
+        String pal = p.getString("pal_" + FILES[s], null);
         if (pal != null) {
             String[] parts = pal.split(",");
             if (parts.length == 5) {
@@ -90,16 +93,17 @@ public final class Styles {
             sb.append(st.pal[i] & 0xFFFFFFFFL);
         }
         prefs(c).edit()
-                .putFloat("speed_" + s, st.speed)
-                .putFloat("scale_" + s, st.scale)
-                .putFloat("bright_" + s, st.bright)
-                .putInt("mode_" + s, st.mode)
-                .putString("pal_" + s, sb.toString())
+                .putFloat("speed_" + FILES[s], st.speed)
+                .putFloat("scale_" + FILES[s], st.scale)
+                .putFloat("bright_" + FILES[s], st.bright)
+                .putInt("mode_" + FILES[s], st.mode)
+                .putBoolean("paused_" + FILES[s], st.paused)
+                .putString("pal_" + FILES[s], sb.toString())
                 .apply();
     }
 
     public static void reset(Context c, int s) {
-        prefs(c).edit().remove("speed_" + s).remove("scale_" + s).remove("bright_" + s)
-                .remove("mode_" + s).remove("pal_" + s).apply();
+        prefs(c).edit().remove("speed_" + FILES[s]).remove("scale_" + FILES[s]).remove("bright_" + FILES[s])
+                .remove("mode_" + FILES[s]).remove("pal_" + FILES[s]).remove("paused_" + FILES[s]).apply();
     }
 }

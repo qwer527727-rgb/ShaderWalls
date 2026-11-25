@@ -44,7 +44,14 @@ public class ShaderWallpaperService extends WallpaperService {
         public void onVisibilityChanged(boolean visible) {
             super.onVisibilityChanged(visible);
             if (view == null) return;
-            if (visible) view.onResume(); else view.onPause();
+            if (visible) {
+                view.onResume();
+                if (Styles.current(ShaderWallpaperService.this) == Styles.SKY) {
+                    Weather.refreshIfStale(ShaderWallpaperService.this);
+                }
+            } else {
+                view.onPause();
+            }
         }
 
         @Override
