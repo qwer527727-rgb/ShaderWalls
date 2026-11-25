@@ -1,5 +1,5 @@
 void main() {
-    float sc = min(u_res.x, u_res.y) / 60.0;
+    float sc = u_scale * min(u_res.x, u_res.y) / 60.0;
     vec2 cs = vec2(sc, sc * 1.6);
     vec2 cell = floor(gl_FragCoord.xy / cs);
     vec2 lp = fract(gl_FragCoord.xy / cs);

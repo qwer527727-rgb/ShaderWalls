@@ -5,6 +5,7 @@ precision mediump float;
 #endif
 uniform vec2 u_res;
 uniform float u_time;
+uniform float u_scale;   // 1 = default size
 
 #define PI 3.14159265
 #define TAU 6.2831853
@@ -36,7 +37,7 @@ float warp(vec2 p, float t) {
     return fbm(p + 2.5 * r);
 }
 // centered coords, shortest side = 1
-vec2 uvc(vec2 fc) { return (fc - 0.5 * u_res) / min(u_res.x, u_res.y); }
+vec2 uvc(vec2 fc) { return (fc - 0.5 * u_res) / (min(u_res.x, u_res.y) * u_scale); }
 
 // x: dist to nearest, y: edge distance, z: cell random id
 vec3 voronoi(vec2 p, float t) {
@@ -65,3 +66,5 @@ vec4 hexGrid(vec2 p) {
 }
 // warp() normalised to roughly 0..1 (median ~0.32)
 float warpN(vec2 p, float t) { return clamp((warp(p, t) - 0.24) / 0.32, 0.0, 1.0); }
+
+#define main styleMain

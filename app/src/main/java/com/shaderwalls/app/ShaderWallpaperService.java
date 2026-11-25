@@ -49,8 +49,10 @@ public class ShaderWallpaperService extends WallpaperService {
 
         @Override
         public void onSharedPreferenceChanged(SharedPreferences p, String key) {
-            if (Styles.KEY_STYLE.equals(key) && renderer != null) {
-                renderer.setStyle(Styles.current(ShaderWallpaperService.this));
+            if (renderer != null) {
+                int s = Styles.current(ShaderWallpaperService.this);
+                renderer.setSettings(Styles.load(ShaderWallpaperService.this, s));
+                renderer.setStyle(s);
             }
         }
 

@@ -26,20 +26,28 @@ public class ShaderRenderer implements GLSurfaceView.Renderer {
     private volatile int requestedStyle;
     private int loadedStyle = -1;
     private int program;
-    private int aPos, uRes, uTime;
+    private int aPos, uRes, uTime, uScale, uBright, uMix, uPal;
+    private volatile Styles.Settings settings = new Styles.Settings();
+    private final float[] palBuf = new float[15];
+    private float simTime;
+    private long lastTick;
     private float width = 1, height = 1;
     private FloatBuffer quad;
     private long lastFrame;
-    private final long start = SystemClock.elapsedRealtime();
-    private String common;
+    private String common, post;
 
     public ShaderRenderer(Context ctx, int style) {
         this.ctx = ctx.getApplicationContext();
         this.requestedStyle = style;
+        this.settings = Styles.load(this.ctx, style);
     }
 
     public void setStyle(int style) {
         requestedStyle = style;
+    }
+
+    public void setSettings(Styles.Settings s) {
+        if (s != null) settings = s;
     }
 
     @Override
@@ -76,6 +84,10 @@ public class ShaderRenderer implements GLSurfaceView.Renderer {
                 aPos = GLES20.glGetAttribLocation(program, "a_pos");
                 uRes = GLES20.glGetUniformLocation(program, "u_res");
                 uTime = GLES20.glGetUniformLocation(program, "u_time");
+                uScale = GLES20.glGetUniformLocation(program, "u_scale");
+                uBright = GLES20.glGetUniformLocation(program, "u_bright");
+                uMix = GLES20.glGetUniformLocation(program, "u_mix");
+                uPal = GLES20.glGetUniformLocation(program, "u_pal[0]");
             }
         }
         if (program == 0) {
@@ -83,11 +95,26 @@ public class ShaderRenderer implements GLSurfaceView.Renderer {
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
             return;
         }
-        // wrap time every hour so float precision stays good
-        float t = ((lastFrame - start) % 3_600_000L) / 1000f;
+        Styles.Settings st = settings;
+        // advance animation clock by speed; wrap every hour to keep float precision
+        long now2 = SystemClock.elapsedRealtime();
+        if (lastTick == 0) lastTick = now2;
+        float dt = Math.min(0.1f, (now2 - lastTick) / 1000f);
+        lastTick = now2;
+        simTime = (simTime + dt * st.speed) % 3600f;
+        for (int i = 0; i < 5; i++) {
+            int c = st.pal[i];
+            palBuf[i * 3] = ((c >> 16) & 0xFF) / 255f;
+            palBuf[i * 3 + 1] = ((c >> 8) & 0xFF) / 255f;
+            palBuf[i * 3 + 2] = (c & 0xFF) / 255f;
+        }
         GLES20.glUseProgram(program);
         GLES20.glUniform2f(uRes, width, height);
-        GLES20.glUniform1f(uTime, t);
+        GLES20.glUniform1f(uTime, simTime + 12f);
+        GLES20.glUniform1f(uScale, st.scale);
+        GLES20.glUniform1f(uBright, st.bright);
+        GLES20.glUniform1f(uMix, st.mode == Styles.MODE_CUSTOM ? 1f : 0f);
+        GLES20.glUniform3fv(uPal, 5, palBuf, 0);
         GLES20.glEnableVertexAttribArray(aPos);
         GLES20.glVertexAttribPointer(aPos, 2, GLES20.GL_FLOAT, false, 0, quad);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
@@ -108,7 +135,8 @@ public class ShaderRenderer implements GLSurfaceView.Renderer {
 
     private int buildProgram(int style) {
         if (common == null) common = asset("shaders/common.glsl");
-        String frag = common + "\n" + asset("shaders/" + Styles.FILES[style] + ".frag");
+        if (post == null) post = asset("shaders/post.glsl");
+        String frag = common + "\n" + asset("shaders/" + Styles.FILES[style] + ".frag") + "\n" + post;
         int vs = compile(GLES20.GL_VERTEX_SHADER, VERT);
         int fs = compile(GLES20.GL_FRAGMENT_SHADER, frag);
         if (vs == 0 || fs == 0) return 0;
